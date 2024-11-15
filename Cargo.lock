@@ -431,6 +431,8 @@ name = "ntex-api"
 version = "0.1.0"
 dependencies = [
  "ntex",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
