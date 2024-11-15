@@ -1,34 +1,25 @@
-use crate::common::init_test_service;
-use ntex::util::Bytes;
-use ntex::web::{test, test::TestRequest};
+use ntex::http::StatusCode;
+use ntex::web::test::TestRequest;
 
 mod common;
+use common::{assert_body, assert_header, assert_status};
 
 #[ntex::test]
-async fn test_hello_world() {
-    let app = init_test_service().await;
-
-    let req = TestRequest::get().uri("/").to_request();
-    let resp = test::call_service(&app, req).await;
-
-    assert_eq!(resp.status(), 200);
-
-    let headers = resp.headers();
-    assert_eq!(
-        headers.get("content-type").unwrap().to_str().unwrap(),
-        "text/plain"
-    );
-
-    let body = test::read_body(resp).await;
-    assert_eq!(body, Bytes::from_static(b"Hello world!"));
+async fn test_hello_endpoint_returns_200() {
+    assert_status(TestRequest::get().uri("/"), StatusCode::OK).await;
 }
 
 #[ntex::test]
-async fn test_not_found() {
-    let app = init_test_service().await;
+async fn test_hello_endpoint_returns_plain_text() {
+    assert_header(TestRequest::get().uri("/"), "content-type", "text/plain").await;
+}
 
-    let req = TestRequest::get().uri("/not-exists").to_request();
-    let resp = test::call_service(&app, req).await;
+#[ntex::test]
+async fn test_hello_endpoint_returns_hello_world() {
+    assert_body(TestRequest::get().uri("/"), b"Hello world!").await;
+}
 
-    assert_eq!(resp.status(), 404);
+#[ntex::test]
+async fn test_not_found_returns_404() {
+    assert_status(TestRequest::get().uri("/not-exists"), StatusCode::NOT_FOUND).await;
 }
