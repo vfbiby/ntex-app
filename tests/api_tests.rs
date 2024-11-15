@@ -23,3 +23,8 @@ async fn test_hello_endpoint_returns_hello_world() {
 async fn test_not_found_returns_404() {
     assert_status(TestRequest::get().uri("/not-exists"), StatusCode::NOT_FOUND).await;
 }
+
+#[ntex::test]
+async fn test_method_not_allowed_returns_405() {
+    assert_status(TestRequest::post().uri("/"), StatusCode::METHOD_NOT_ALLOWED).await;
+}

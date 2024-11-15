@@ -2,10 +2,11 @@ use ntex::http::{Request, StatusCode};
 use ntex::util::Bytes;
 use ntex::web::{test, test::TestRequest, Error, WebResponse};
 use ntex::{web, Pipeline, Service};
+use ntex_api::app::config_app;
 
 pub async fn init_test_service(
 ) -> Pipeline<impl Service<Request, Response = WebResponse, Error = Error> + Sized> {
-    test::init_service(web::App::new().route("/", web::get().to(ntex_api::api::index))).await
+    test::init_service(web::App::new().configure(config_app)).await
 }
 
 // 辅助函数：验证响应状态码
