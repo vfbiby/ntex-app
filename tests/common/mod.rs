@@ -3,6 +3,7 @@ use ntex::util::Bytes;
 use ntex::web::{test, test::TestRequest, Error, WebResponse};
 use ntex::{web, Pipeline, Service};
 use ntex_api::app::config_app;
+use sea_orm::{Database, DatabaseConnection};
 
 pub async fn init_test_service(
 ) -> Pipeline<impl Service<Request, Response = WebResponse, Error = Error> + Sized> {
@@ -33,4 +34,17 @@ pub async fn assert_body(req: TestRequest, expected_body: &[u8]) {
     let resp = test::call_service(&app, req.to_request()).await;
     let body = test::read_body(resp).await;
     assert_eq!(body, Bytes::copy_from_slice(expected_body));
+}
+
+pub async fn setup_database() -> DatabaseConnection {
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite::memory:".to_string());
+
+    let db = Database::connect(&database_url)
+        .await
+        .expect("Failed to connect to database");
+
+    // 可以在这里添加数据库迁移和初始化代码
+
+    db
 }
