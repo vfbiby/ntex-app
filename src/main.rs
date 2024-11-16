@@ -1,9 +1,11 @@
 mod api;
 mod app;
 mod db;
+mod config;
+mod error;
+mod entity;
 
 use ntex::web;
-use ntex_api::{app::config_app, config::Config};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -15,11 +17,11 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     // Load configuration
-    let config = Config::from_env();
+    let config = config::Config::from_env();
     info!("Starting server with config: {:?}", config);
     
     // Initialize database
-    let db = ntex_api::db::init_db().await;
+    let db = db::init_db().await;
     info!("Database initialized");
     
     let addr = format!("{}:{}", config.server_host, config.server_port);
@@ -28,7 +30,7 @@ async fn main() -> std::io::Result<()> {
     web::HttpServer::new(move || {
         web::App::new()
             .state(db.clone())
-            .configure(config_app)
+            .configure(app::config_app)
     })
     .bind(&addr)?
     .run()

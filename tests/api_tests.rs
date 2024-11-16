@@ -24,6 +24,9 @@ mod video_tests {
 
     #[ntex::test]
     async fn test_empty_videos_returns_empty_array() {
-        assert_body(TestRequest::get().uri("/videos"), b"[]").await;
+        assert_body(
+            TestRequest::get().uri("/videos"),
+            b"{\"videos\":[],\"total\":0,\"page\":1,\"per_page\":10,\"total_pages\":0}"
+        ).await;
     }
 }

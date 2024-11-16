@@ -3,6 +3,7 @@ use ntex::util::Bytes;
 use ntex::web::{test, test::TestRequest, Error, WebResponse};
 use ntex::{web, Pipeline, Service};
 use ntex_api::app::config_app;
+use ntex_api::entity::video::Entity;
 use sea_orm::{Database, DatabaseConnection, Schema, ConnectionTrait};
 
 pub async fn init_test_service(
@@ -53,7 +54,7 @@ pub async fn setup_database() -> DatabaseConnection {
     // Initialize the database schema
     let backend = db.get_database_backend();
     let schema = Schema::new(backend);
-    let mut table = schema.create_table_from_entity(ntex_api::db::Entity);
+    let mut table = schema.create_table_from_entity(Entity);
     let stmt = table.if_not_exists();
     db.execute(backend.build(stmt))
         .await
