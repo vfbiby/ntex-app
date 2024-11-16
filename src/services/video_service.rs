@@ -1,19 +1,41 @@
-use validator::Validate;
-use crate::repositories::video_repository::VideoRepository;
-use crate::error::{AppError, AppResult};
-use crate::db::VideoQuery;
 use crate::api::{CreateVideoRequest, UpdateVideoRequest, VideoResponse, PaginatedVideoResponse};
+use crate::db::VideoQuery;
+use crate::error::{AppError, AppResult};
+use crate::repositories::video_repository::VideoRepository;
+use validator::Validate;
 
+/// Service layer for handling video business logic
+/// 
+/// This service implements the business logic for video operations, including:
+/// - Input validation
+/// - Data transformation
+/// - Business rules enforcement
+/// - Coordination with the repository layer
 #[derive(Clone)]
 pub struct VideoService {
     repository: VideoRepository,
 }
 
 impl VideoService {
+    /// Creates a new instance of VideoService
+    /// 
+    /// # Arguments
+    /// * `repository` - The video repository instance for data access
     pub fn new(repository: VideoRepository) -> Self {
         Self { repository }
     }
 
+    /// Creates a new video
+    /// 
+    /// # Arguments
+    /// * `req` - The video creation request containing title and youtube_id
+    /// 
+    /// # Returns
+    /// * `AppResult<VideoResponse>` - The created video on success
+    /// 
+    /// # Errors
+    /// * `AppError::Validation` - If the input data is invalid
+    /// * `AppError::Database` - If there's an error saving to the database
     pub async fn create_video(&self, req: CreateVideoRequest) -> AppResult<VideoResponse> {
         if let Err(e) = req.validate() {
             return Err(AppError::Validation(e.to_string()));
@@ -30,6 +52,17 @@ impl VideoService {
         })
     }
 
+    /// Retrieves a video by ID
+    /// 
+    /// # Arguments
+    /// * `id` - The ID of the video to retrieve
+    /// 
+    /// # Returns
+    /// * `AppResult<VideoResponse>` - The requested video on success
+    /// 
+    /// # Errors
+    /// * `AppError::NotFound` - If the video doesn't exist
+    /// * `AppError::Database` - If there's an error accessing the database
     pub async fn get_video(&self, id: i32) -> AppResult<VideoResponse> {
         let video = self.repository.find_by_id(id).await?
             .ok_or_else(|| AppError::NotFound(format!("Video with id {} not found", id)))?;
@@ -44,6 +77,19 @@ impl VideoService {
         })
     }
 
+    /// Updates an existing video
+    /// 
+    /// # Arguments
+    /// * `id` - The ID of the video to update
+    /// * `req` - The video update request containing new title and youtube_id
+    /// 
+    /// # Returns
+    /// * `AppResult<VideoResponse>` - The updated video on success
+    /// 
+    /// # Errors
+    /// * `AppError::NotFound` - If the video doesn't exist
+    /// * `AppError::Validation` - If the input data is invalid
+    /// * `AppError::Database` - If there's an error updating the database
     pub async fn update_video(&self, id: i32, req: UpdateVideoRequest) -> AppResult<VideoResponse> {
         if let Err(e) = req.validate() {
             return Err(AppError::Validation(e.to_string()));
@@ -62,6 +108,17 @@ impl VideoService {
         })
     }
 
+    /// Deletes a video
+    /// 
+    /// # Arguments
+    /// * `id` - The ID of the video to delete
+    /// 
+    /// # Returns
+    /// * `AppResult<bool>` - Success indicator
+    /// 
+    /// # Errors
+    /// * `AppError::NotFound` - If the video doesn't exist
+    /// * `AppError::Database` - If there's an error deleting from the database
     pub async fn delete_video(&self, id: i32) -> AppResult<bool> {
         let deleted = self.repository.delete(id).await?;
         if !deleted {
@@ -70,6 +127,16 @@ impl VideoService {
         Ok(true)
     }
 
+    /// Lists videos based on query parameters
+    /// 
+    /// # Arguments
+    /// * `query` - Query parameters for filtering and pagination
+    /// 
+    /// # Returns
+    /// * `AppResult<PaginatedVideoResponse>` - List of videos matching the query
+    /// 
+    /// # Errors
+    /// * `AppError::Database` - If there's an error accessing the database
     pub async fn list_videos(&self, query: VideoQuery) -> AppResult<PaginatedVideoResponse> {
         let (videos, total) = self.repository.list(&query).await?;
         let page = query.page.unwrap_or(1);
