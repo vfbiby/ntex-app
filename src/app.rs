@@ -2,5 +2,7 @@ use crate::api;
 use ntex::web;
 
 pub fn config_app(cfg: &mut web::ServiceConfig) {
-    cfg.service(api::index).service(api::list_videos);
+    cfg.service(api::index)
+       .service(api::list_videos)
+       .service(api::create_video);
 }
