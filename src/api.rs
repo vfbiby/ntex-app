@@ -1,9 +1,10 @@
-use chrono::Utc;
 use ntex::{
-    web::{self, types::Json, HttpResponse},
+    web::{self, types::{Json, State}, HttpResponse, Responder},
 };
-use ntex::web::Responder;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use sea_orm::DatabaseConnection;
+
+use crate::db;
 
 #[web::get("/")]
 pub async fn index() -> HttpResponse {
@@ -12,20 +13,12 @@ pub async fn index() -> HttpResponse {
         .body("Hello world!")
 }
 
-#[derive(Serialize, Deserialize)]
-struct Video {
-    id: i32,
-    title: String,
-    youtube_id: String,
-    created_at: String,
-}
-
 #[web::get("/videos")]
-pub async fn list_videos() -> HttpResponse {
-    let videos = Vec::<Video>::new();
-    HttpResponse::Ok()
-        .content_type("application/json")
-        .json(&videos)
+pub async fn list_videos(db: State<DatabaseConnection>) -> HttpResponse {
+    match db::list_videos(&db).await {
+        Ok(videos) => HttpResponse::Ok().json(&videos),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -35,30 +28,36 @@ pub struct CreateVideoRequest {
 }
 
 #[web::post("/videos")]
-pub async fn create_video(payload: Json<CreateVideoRequest>) -> impl Responder {
-    let video = Video {
-        id: 1, // For now, hardcode id as 1
-        title: payload.title.clone(),
-        youtube_id: payload.youtube_id.clone(),
-        created_at: Utc::now().to_rfc3339(),
-    };
-
-    HttpResponse::Created()
-        .content_type("application/json")
-        .json(&video)
+pub async fn create_video(
+    db: State<DatabaseConnection>,
+    payload: Json<CreateVideoRequest>
+) -> impl Responder {
+    match db::create_video(
+        &db,
+        payload.title.clone(),
+        payload.youtube_id.clone(),
+    ).await {
+        Ok(video) => HttpResponse::Created().json(&video),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::config_app;
+    use crate::{app::config_app, db::Model as Video};
     use ntex::http::StatusCode;
     use ntex::web::App;
     use ntex::web::test::{self, TestRequest};
 
     #[ntex::test]
     async fn test_create_video() {
-        let app = test::init_service(App::new().configure(config_app)).await;
+        let db = crate::db::init_db().await;
+        let app = test::init_service(
+            App::new()
+                .state(db)
+                .configure(config_app)
+        ).await;
 
         let payload = serde_json::json!({
             "title": "Test Video",
