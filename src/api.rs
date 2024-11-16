@@ -3,6 +3,7 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 use tracing::info;
+use chrono::{DateTime, Utc};
 
 use crate::db::{self, VideoQuery};
 
@@ -27,7 +28,9 @@ pub struct VideoResponse {
     pub id: i32,
     pub title: String,
     pub youtube_id: String,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,12 +63,14 @@ pub async fn create_video(
         })),
     }
 
-    match db::create_video(&data, req.title.clone(), req.youtube_id.clone()).await {
+    match db::create_video(data.get_ref(), req.title.clone(), req.youtube_id.clone()).await {
         Ok(video) => HttpResponse::Created().json(&VideoResponse {
             id: video.id,
             title: video.title,
             youtube_id: video.youtube_id,
             created_at: video.created_at,
+            updated_at: video.updated_at,
+            deleted_at: video.deleted_at,
         }),
         Err(e) => HttpResponse::InternalServerError().json(&serde_json::json!({
             "error": format!("Database error: {}", e)
@@ -80,13 +85,15 @@ pub async fn list_videos(
 ) -> impl Responder {
     info!("Listing videos with query: {:?}", query);
     
-    match db::list_videos(&data, query.into_inner()).await {
+    match db::list_videos(data.get_ref(), query.into_inner()).await {
         Ok(result) => {
             let videos = result.videos.into_iter().map(|v| VideoResponse {
                 id: v.id,
                 title: v.title,
                 youtube_id: v.youtube_id,
                 created_at: v.created_at,
+                updated_at: v.updated_at,
+                deleted_at: v.deleted_at,
             }).collect();
 
             HttpResponse::Ok().json(&PaginatedVideoResponse {
@@ -110,12 +117,14 @@ pub async fn get_video(
 ) -> impl Responder {
     info!("Getting video with id: {}", id);
     
-    match db::get_video(&data, *id).await {
+    match db::get_video(data.get_ref(), *id).await {
         Ok(Some(video)) => HttpResponse::Ok().json(&VideoResponse {
             id: video.id,
             title: video.title,
             youtube_id: video.youtube_id,
             created_at: video.created_at,
+            updated_at: video.updated_at,
+            deleted_at: video.deleted_at,
         }),
         Ok(None) => HttpResponse::NotFound().json(&serde_json::json!({
             "error": format!("Video with id {} not found", id)
@@ -126,7 +135,7 @@ pub async fn get_video(
     }
 }
 
-#[web::patch("/videos/{id}")]
+#[web::put("/videos/{id}")]
 pub async fn update_video(
     id: Path<i32>,
     req: Json<UpdateVideoRequest>,
@@ -141,12 +150,14 @@ pub async fn update_video(
         })),
     }
 
-    match db::update_video(&data, *id, req.title.clone(), req.youtube_id.clone()).await {
+    match db::update_video(data.get_ref(), *id, req.title.clone(), req.youtube_id.clone()).await {
         Ok(Some(video)) => HttpResponse::Ok().json(&VideoResponse {
             id: video.id,
             title: video.title,
             youtube_id: video.youtube_id,
             created_at: video.created_at,
+            updated_at: video.updated_at,
+            deleted_at: video.deleted_at,
         }),
         Ok(None) => HttpResponse::NotFound().json(&serde_json::json!({
             "error": format!("Video with id {} not found", id)
@@ -164,8 +175,10 @@ pub async fn delete_video(
 ) -> impl Responder {
     info!("Deleting video with id: {}", id);
     
-    match db::delete_video(&data, *id).await {
-        Ok(true) => HttpResponse::NoContent().finish(),
+    match db::delete_video(data.get_ref(), *id).await {
+        Ok(true) => HttpResponse::Ok().json(&serde_json::json!({
+            "message": format!("Video with id {} deleted", id)
+        })),
         Ok(false) => HttpResponse::NotFound().json(&serde_json::json!({
             "error": format!("Video with id {} not found", id)
         })),
@@ -179,7 +192,7 @@ pub async fn delete_video(
 mod tests {
     use super::*;
     use ntex::web::test;
-    use ntex::http::StatusCode;
+    use chrono::Utc;
 
     #[ntex::test]
     async fn test_create_video() {
@@ -187,21 +200,20 @@ mod tests {
         let app = test::init_service(
             web::App::new()
                 .state(db)
-                .service(create_video)
-        ).await;
-
-        let payload = CreateVideoRequest {
-            title: "Test Video".to_string(),
-            youtube_id: "dQw4w9WgXcQ".to_string(),
-        };
+                .configure(crate::app::config_app),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/videos")
-            .set_json(&payload)
+            .set_json(&CreateVideoRequest {
+                title: "Test Video".to_string(),
+                youtube_id: "dQw4w9WgXcQ".to_string(),
+            })
             .to_request();
 
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::CREATED);
+        assert_eq!(resp.status(), 201);
 
         let body = test::read_body(resp).await;
         let video: VideoResponse = serde_json::from_slice(&body).unwrap();
@@ -209,6 +221,8 @@ mod tests {
         assert_eq!(video.title, "Test Video");
         assert_eq!(video.youtube_id, "dQw4w9WgXcQ");
         assert!(video.id > 0);
-        assert!(!video.created_at.is_empty());
+        assert!(video.created_at <= Utc::now());
+        assert!(video.updated_at <= Utc::now());
+        assert!(video.deleted_at.is_none());
     }
 }

@@ -1,11 +1,12 @@
 use sea_orm::{
-    ConnectionTrait, Database, DatabaseConnection,
+    Database, DatabaseConnection,
     DbErr, EntityTrait, Set, ActiveModelTrait,
     Condition, QueryFilter, PaginatorTrait, QuerySelect, ColumnTrait,
     QueryOrder,
 };
 use serde::Deserialize;
 use chrono::Utc;
+use migration::MigratorTrait;
 
 use crate::entity::video::{self, Entity as Video, Model, ActiveModel};
 
@@ -39,33 +40,8 @@ pub struct PaginatedVideos {
 }
 
 pub async fn init_db() -> DatabaseConnection {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:./videos.db?mode=rwc".to_string());
-
-    let db = Database::connect(&database_url)
-        .await
-        .expect("Failed to connect to database");
-
-    // Create videos table if it doesn't exist
-    db.execute_unprepared(
-        "CREATE TABLE IF NOT EXISTS videos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            youtube_id TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )",
-    )
-    .await
-    .expect("Failed to create videos table");
-
-    // Create indexes for better performance
-    db.execute_unprepared(
-        "CREATE INDEX IF NOT EXISTS idx_videos_title ON videos(title);
-         CREATE INDEX IF NOT EXISTS idx_videos_created_at ON videos(created_at);"
-    )
-    .await
-    .expect("Failed to create indexes");
-
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    migration::Migrator::up(&db, None).await.unwrap();
     db
 }
 
@@ -77,12 +53,10 @@ pub async fn create_video(
     let video = ActiveModel {
         title: Set(title),
         youtube_id: Set(youtube_id),
-        created_at: Set(Utc::now().to_rfc3339()),
         ..Default::default()
     };
 
-    let result = video.insert(db).await?;
-    Ok(result)
+    video.insert(db).await
 }
 
 pub async fn list_videos(
@@ -91,30 +65,32 @@ pub async fn list_videos(
 ) -> Result<PaginatedVideos, DbErr> {
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(10);
-    let offset = (page - 1) * per_page;
-
-    let mut select = Video::find();
-
-    // Add search condition if provided
-    if let Some(search) = query.search {
-        select = select.filter(
-            Condition::any()
-                .add(video::Column::Title.contains(&search))
-                .add(video::Column::YoutubeId.contains(&search))
-        );
-    }
-
-    // Add ordering
+    let search = query.search.unwrap_or_default();
     let order_by = query.order_by.unwrap_or_else(|| "created_at".to_string());
     let order_direction = query.order_direction.unwrap_or_else(|| "desc".to_string());
 
+    let mut condition = Condition::all();
+    
+    // Only include non-deleted videos
+    condition = condition.add(video::Column::DeletedAt.is_null());
+
+    // Add search condition if search is not empty
+    if !search.is_empty() {
+        condition = condition
+            .add(video::Column::Title.contains(&search))
+            .add(video::Column::YoutubeId.contains(&search));
+    }
+
+    let mut select = Video::find().filter(condition);
+
+    // Add ordering
     let order_by_col = match order_by.as_str() {
         "title" => video::Column::Title,
         "youtube_id" => video::Column::YoutubeId,
         _ => video::Column::CreatedAt,
     };
 
-    select = match order_direction.to_lowercase().as_str() {
+    select = match order_direction.as_str() {
         "asc" => select.order_by_asc(order_by_col),
         _ => select.order_by_desc(order_by_col),
     };
@@ -122,14 +98,16 @@ pub async fn list_videos(
     // Get total count
     let total = select.clone().count(db).await?;
 
-    // Get paginated results
+    // Calculate pagination
+    let total_pages = (total + per_page - 1) / per_page;
+    let offset = (page - 1) * per_page;
+
+    // Get paginated videos
     let videos = select
         .offset(offset)
         .limit(per_page)
         .all(db)
         .await?;
-
-    let total_pages = (total as f64 / per_page as f64).ceil() as u64;
 
     Ok(PaginatedVideos {
         videos,
@@ -144,7 +122,10 @@ pub async fn get_video(
     db: &DatabaseConnection,
     id: i32,
 ) -> Result<Option<Model>, DbErr> {
-    Video::find_by_id(id).one(db).await
+    Video::find_by_id(id)
+        .filter(video::Column::DeletedAt.is_null())
+        .one(db)
+        .await
 }
 
 pub async fn update_video(
@@ -153,7 +134,10 @@ pub async fn update_video(
     title: Option<String>,
     youtube_id: Option<String>,
 ) -> Result<Option<Model>, DbErr> {
-    let video = Video::find_by_id(id).one(db).await?;
+    let video = Video::find_by_id(id)
+        .filter(video::Column::DeletedAt.is_null())
+        .one(db)
+        .await?;
 
     if let Some(video) = video {
         let mut active_model: ActiveModel = video.clone().into();
@@ -177,6 +161,17 @@ pub async fn delete_video(
     db: &DatabaseConnection,
     id: i32,
 ) -> Result<bool, DbErr> {
-    let result = Video::delete_by_id(id).exec(db).await?;
-    Ok(result.rows_affected > 0)
+    let video = Video::find_by_id(id)
+        .filter(video::Column::DeletedAt.is_null())
+        .one(db)
+        .await?;
+
+    if let Some(video) = video {
+        let mut active_model: ActiveModel = video.into();
+        active_model.deleted_at = Set(Some(Utc::now()));
+        active_model.update(db).await?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
