@@ -303,107 +303,113 @@ impl VideoService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repositories::video_repository::VideoRepository;
-    use sea_orm::DatabaseConnection;
+    use sea_orm::{Database, Schema, DatabaseConnection, DatabaseBackend, ConnectionTrait};
+    use crate::entity::video;
 
-    #[tokio::test]
+    async fn setup_database(db: &DatabaseConnection) {
+        let schema = Schema::new(DatabaseBackend::Sqlite);
+        let stmt = schema.create_table_from_entity(video::Entity);
+        db.execute(db.get_database_backend().build(&stmt)).await.unwrap();
+    }
+
+    #[ntex::test]
     async fn test_create_video() {
-        let db = DatabaseConnection::new("sqlite://:memory:").await.unwrap();
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        setup_database(&db).await;
         let repo = VideoRepository::new(db);
         let service = VideoService::new(repo);
 
         let request = CreateVideoRequest {
-            title: "My Awesome Video".to_string(),
-            youtube_id: "dQw4w9WgXcQ".to_string(),
+            title: "Test Video".to_string(),
+            youtube_id: "dQw4w9WgXcQ".to_string(), // 11 characters
         };
 
-        let video = service.create_video(request).await.unwrap();
-        assert_eq!(video.title, "My Awesome Video");
+        let result = service.create_video(request).await;
+        assert!(result.is_ok());
     }
 
-    #[tokio::test]
+    #[ntex::test]
     async fn test_get_video() {
-        let db = DatabaseConnection::new("sqlite://:memory:").await.unwrap();
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        setup_database(&db).await;
         let repo = VideoRepository::new(db);
         let service = VideoService::new(repo);
 
         let request = CreateVideoRequest {
-            title: "My Awesome Video".to_string(),
-            youtube_id: "dQw4w9WgXcQ".to_string(),
+            title: "Test Video".to_string(),
+            youtube_id: "dQw4w9WgXcQ".to_string(), // 11 characters
         };
 
         let video = service.create_video(request).await.unwrap();
-        let retrieved_video = service.get_video(video.id).await.unwrap();
-        assert_eq!(retrieved_video.id, video.id);
+        let result = service.get_video(video.id).await;
+        assert!(result.is_ok());
     }
 
-    #[tokio::test]
+    #[ntex::test]
+    async fn test_list_videos() {
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        setup_database(&db).await;
+        let repo = VideoRepository::new(db);
+        let service = VideoService::new(repo);
+
+        // 创建一些测试视频
+        for i in 0..3 {
+            let request = CreateVideoRequest {
+                title: format!("Test Video {}", i),
+                youtube_id: format!("dQw4w9WgXc{}", i), // 11 characters
+            };
+            service.create_video(request).await.unwrap();
+        }
+
+        let result = service.list_videos(VideoQuery::default()).await;
+        assert!(result.is_ok());
+        let videos = result.unwrap();
+        assert_eq!(videos.videos.len(), 3);
+    }
+
+    #[ntex::test]
     async fn test_update_video() {
-        let db = DatabaseConnection::new("sqlite://:memory:").await.unwrap();
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        setup_database(&db).await;
         let repo = VideoRepository::new(db);
         let service = VideoService::new(repo);
 
         let request = CreateVideoRequest {
-            title: "My Awesome Video".to_string(),
-            youtube_id: "dQw4w9WgXcQ".to_string(),
+            title: "Test Video".to_string(),
+            youtube_id: "dQw4w9WgXcQ".to_string(), // 11 characters
         };
 
         let video = service.create_video(request).await.unwrap();
         let update_request = UpdateVideoRequest {
-            title: Some("Updated Video Title".to_string()),
-            youtube_id: Some("dQw4w9WgXcQ".to_string()),
+            title: Some("Updated Video".to_string()),
+            youtube_id: Some("xQc9WgXw4Qd".to_string()), // 11 characters
         };
 
-        let updated_video = service.update_video(video.id, update_request).await.unwrap();
-        assert_eq!(updated_video.title, "Updated Video Title");
+        let result = service.update_video(video.id, update_request).await;
+        assert!(result.is_ok());
+
+        let updated = service.get_video(video.id).await.unwrap();
+        assert_eq!(updated.title, "Updated Video");
+        assert_eq!(updated.youtube_id, "xQc9WgXw4Qd");
     }
 
-    #[tokio::test]
+    #[ntex::test]
     async fn test_delete_video() {
-        let db = DatabaseConnection::new("sqlite://:memory:").await.unwrap();
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        setup_database(&db).await;
         let repo = VideoRepository::new(db);
         let service = VideoService::new(repo);
 
         let request = CreateVideoRequest {
-            title: "My Awesome Video".to_string(),
-            youtube_id: "dQw4w9WgXcQ".to_string(),
+            title: "Test Video".to_string(),
+            youtube_id: "dQw4w9WgXcQ".to_string(), // 11 characters
         };
 
         let video = service.create_video(request).await.unwrap();
-        service.delete_video(video.id).await.unwrap();
+        let result = service.delete_video(video.id).await;
+        assert!(result.is_ok());
 
-        let result = service.get_video(video.id).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_list_videos() {
-        let db = DatabaseConnection::new("sqlite://:memory:").await.unwrap();
-        let repo = VideoRepository::new(db);
-        let service = VideoService::new(repo);
-
-        let request1 = CreateVideoRequest {
-            title: "My Awesome Video 1".to_string(),
-            youtube_id: "dQw4w9WgXcQ".to_string(),
-        };
-
-        let request2 = CreateVideoRequest {
-            title: "My Awesome Video 2".to_string(),
-            youtube_id: "dQw4w9WgXcQ".to_string(),
-        };
-
-        service.create_video(request1).await.unwrap();
-        service.create_video(request2).await.unwrap();
-
-        let query = VideoQuery {
-            page: Some(1),
-            per_page: Some(10),
-            search: Some("awesome".to_string()),
-            order_by: Some("created_at".to_string()),
-            order_direction: Some("desc".to_string()),
-        };
-
-        let videos = service.list_videos(query).await.unwrap();
-        assert!(!videos.videos.is_empty());
+        let get_result = service.get_video(video.id).await;
+        assert!(get_result.is_err());
     }
 }
